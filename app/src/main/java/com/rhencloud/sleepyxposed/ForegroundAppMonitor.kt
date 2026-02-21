@@ -47,6 +47,29 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
                 } ?: pkg
             }
         }
+        
+        /**
+         * Utility method to get application label/display name from package name.
+         * This requires a Context object and PackageManager.
+         * 
+         * Example usage from within a hook that has access to Context:
+         * val displayName = ForegroundAppMonitor.getAppDisplayName(context, "com.android.chrome")
+         * 
+         * @param context Android Context
+         * @param packageName Package name of the app
+         * @return Display name of the app, or package name if not found
+         */
+        @JvmStatic
+        fun getAppDisplayName(context: android.content.Context, packageName: String): String {
+            return try {
+                val packageManager = context.packageManager
+                val applicationInfo = packageManager.getApplicationInfo(packageName, 0)
+                packageManager.getApplicationLabel(applicationInfo).toString()
+            } catch (e: Exception) {
+                XposedBridge.log("$TAG: Failed to get app display name for $packageName: ${e.message}")
+                packageName
+            }
+        }
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
@@ -158,28 +181,6 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
             else -> {
                 XposedBridge.log("$TAG: [OPERATION] App switch detected: $packageName")
             }
-        }
-    }
-    
-    /**
-     * Utility method to get application label/display name from package name.
-     * This requires a Context object and PackageManager.
-     * 
-     * Example usage from within a hook that has access to Context:
-     * val displayName = getAppDisplayName(context, "com.android.chrome")
-     * 
-     * @param context Android Context
-     * @param packageName Package name of the app
-     * @return Display name of the app, or package name if not found
-     */
-    fun getAppDisplayName(context: android.content.Context, packageName: String): String {
-        return try {
-            val packageManager = context.packageManager
-            val applicationInfo = packageManager.getApplicationInfo(packageName, 0)
-            packageManager.getApplicationLabel(applicationInfo).toString()
-        } catch (e: Exception) {
-            XposedBridge.log("$TAG: Failed to get app display name for $packageName: ${e.message}")
-            packageName
         }
     }
 }

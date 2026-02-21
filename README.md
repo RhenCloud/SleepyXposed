@@ -106,8 +106,7 @@ val activityName = ForegroundAppMonitor.getCurrentForegroundActivity()
 val componentName = ForegroundAppMonitor.getCurrentForegroundComponentName()
 
 // 获取应用显示名称（需要 Context）/ Get app display name (requires Context)
-val monitor = ForegroundAppMonitor()
-val displayName = monitor.getAppDisplayName(context, packageName ?: "")
+val displayName = ForegroundAppMonitor.getAppDisplayName(context, packageName ?: "")
 ```
 
 这些方法可以在您的自定义操作中或其他 Xposed 模块中调用。

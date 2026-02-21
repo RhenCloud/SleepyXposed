@@ -60,15 +60,17 @@ object GetCurrentAppExample {
     fun isBrowserActive(): Boolean {
         val currentPackage = ForegroundAppMonitor.getCurrentForegroundPackage() ?: return false
         
-        val browserPackages = listOf(
+        val browserPackages = setOf(
             "com.android.chrome",
             "org.mozilla.firefox",
             "com.opera.browser",
             "com.brave.browser",
-            "com.microsoft.emmx"
+            "com.microsoft.emmx",
+            "com.opera.mini.native",
+            "com.UCMobile.intl"
         )
         
-        return browserPackages.any { currentPackage.contains(it) }
+        return browserPackages.contains(currentPackage)
     }
 
     /**
@@ -77,19 +79,34 @@ object GetCurrentAppExample {
     fun getCurrentAppCategory(): String {
         val packageName = ForegroundAppMonitor.getCurrentForegroundPackage() ?: return "Unknown"
         
+        // Browser apps
+        val browsers = setOf(
+            "com.android.chrome", "org.mozilla.firefox", "com.opera.browser",
+            "com.brave.browser", "com.microsoft.emmx", "com.opera.mini.native"
+        )
+        if (packageName in browsers) return "Browser"
+        
+        // Social media apps
+        val socialMedia = setOf(
+            "com.facebook.katana", "com.instagram.android",
+            "com.twitter.android", "com.snapchat.android"
+        )
+        if (packageName in socialMedia) return "Social Media"
+        
+        // Video apps
+        val videoApps = setOf(
+            "com.google.android.youtube", "com.netflix.mediaclient"
+        )
+        if (packageName in videoApps) return "Video"
+        
+        // System apps
+        if (packageName == "com.android.systemui" || packageName == "android") {
+            return "System"
+        }
+        
+        // Fallback: check for common keywords in package name (less specific)
         return when {
-            packageName.contains("chrome") || packageName.contains("firefox") || 
-            packageName.contains("browser") -> "Browser"
-            
-            packageName.contains("game") -> "Game"
-            
-            packageName in listOf("com.facebook.katana", "com.instagram.android", 
-                                  "com.twitter.android", "com.snapchat.android") -> "Social Media"
-            
-            packageName in listOf("com.google.android.youtube", "com.netflix.mediaclient") -> "Video"
-            
-            packageName.contains("systemui") || packageName == "android" -> "System"
-            
+            packageName.startsWith("com.") && packageName.contains(".game.") -> "Game"
             else -> "Other"
         }
     }
