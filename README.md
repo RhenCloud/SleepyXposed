@@ -29,6 +29,14 @@ This module works by hooking into Android system's ActivityRecord.completeResume
 
 ## 安装 / Installation
 
+### 方式 1：下载预编译的 APK / Method 1: Download Pre-built APK
+
+从 [GitHub Actions](https://github.com/RhenCloud/SleepyXposed/actions) 工作流中下载最新构建的 APK 文件。每次推送到主分支时，都会自动编译生成 APK。
+
+Download the latest built APK from the [GitHub Actions](https://github.com/RhenCloud/SleepyXposed/actions) workflow. APK files are automatically compiled on every push to the main branch.
+
+### 方式 2：手动构建 / Method 2: Build Manually
+
 1. 安装 Xposed Framework 或 LSPosed
    Install Xposed Framework or LSPosed
 
@@ -39,13 +47,15 @@ This module works by hooking into Android system's ActivityRecord.completeResume
    adb install app/build/outputs/apk/debug/app-debug.apk
    ```
 
-3. 在 Xposed/LSPosed 管理器中启用模块
+### 安装步骤 / Installation Steps
+
+1. 在 Xposed/LSPosed 管理器中启用模块
    Enable the module in Xposed/LSPosed manager
 
-4. 勾选 "系统框架 (android)" 作为作用域
+2. 勾选 "系统框架 (android)" 作为作用域
    Check "System Framework (android)" as the scope
 
-5. 重启设备
+3. 重启设备
    Reboot your device
 
 ## 使用方法 / Usage
