@@ -104,7 +104,8 @@ object GetCurrentAppExample {
             return "System"
         }
         
-        // Fallback: check for common keywords in package name (less specific)
+        // Fallback: heuristic check for common keywords in package name
+        // Note: This is less precise and may produce false positives
         return when {
             packageName.contains(".game.") -> "Game"
             else -> "Other"
