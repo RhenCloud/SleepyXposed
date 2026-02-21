@@ -2,20 +2,33 @@ package com.rhencloud.sleepyxposed
 
 import android.app.ActivityManager
 import android.content.ComponentName
+import android.content.Context
+import android.os.BatteryManager
+import android.os.Handler
+import android.os.Looper
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
 
 class ForegroundAppMonitor : IXposedHookLoadPackage {
 
     companion object {
         private const val TAG = "SleepyXposed"
         private const val SYSTEM_SERVER = "android"
+        private const val REPORT_DELAY_MS = 1000L
+        private const val CONFIG_NAME = "sleepy_config"
+        
         private var lastForegroundPackage: String? = null
         private var currentForegroundPackage: String? = null
         private var currentForegroundActivity: String? = null
+        
+        var cachedConfig: Config? = null
         
         /**
          * Get the current foreground application package name.
@@ -72,6 +85,18 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
         }
     }
 
+    data class Config(
+        val url: String,
+        val secret: String,
+        val id: String,
+        val showName: String,
+        val enabled: Boolean = true
+    )
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var reportRunnable: Runnable? = null
+    private var systemContext: Context? = null
+
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         // We only hook into the system server process
         if (lpparam.packageName != SYSTEM_SERVER) {
@@ -79,9 +104,11 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
         }
 
         try {
+            // Get system context for accessing battery manager and shared preferences
             hookActivityTaskManagerService(lpparam)
         } catch (e: Throwable) {
             XposedBridge.log("$TAG: Failed to hook: ${e.message}")
+            LogRepository.addLog(LogLevel.ERROR, "Failed to hook: ${e.message}")
         }
     }
 
@@ -92,6 +119,29 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
             "com.android.server.wm.ActivityRecord",
             lpparam.classLoader
         )
+
+        // Get system context
+        try {
+            val activityThreadClass = XposedHelpers.findClass(
+                "android.app.ActivityThread",
+                lpparam.classLoader
+            )
+            val currentActivityThread = XposedHelpers.callStaticMethod(
+                activityThreadClass,
+                "currentActivityThread"
+            )
+            systemContext = XposedHelpers.callMethod(
+                currentActivityThread,
+                "getSystemContext"
+            ) as? Context
+            
+            if (systemContext != null) {
+                // Load configuration from shared preferences
+                loadConfiguration()
+            }
+        } catch (e: Exception) {
+            XposedBridge.log("$TAG: Failed to get system context: ${e.message}")
+        }
 
         // Hook the completeResumeLocked method which is called when an activity is resumed
         XposedHelpers.findAndHookMethod(
@@ -139,6 +189,7 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
 
                                 // Log the app switch
                                 XposedBridge.log("$TAG: Foreground app switched to: $componentName")
+                                LogRepository.addLog(LogLevel.INFO, "App switched to: $componentName")
 
                                 // Execute custom operations here
                                 executeCustomOperations(packageName, activityName)
@@ -146,34 +197,140 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
                         }
                     } catch (e: Throwable) {
                         XposedBridge.log("$TAG: Error in hook: ${e.message}")
+                        LogRepository.addLog(LogLevel.ERROR, "Hook error: ${e.message}")
                     }
                 }
             }
         )
 
         XposedBridge.log("$TAG: Successfully hooked into ActivityRecord.completeResumeLocked")
+        LogRepository.addLog(LogLevel.INFO, "Successfully hooked into system")
+    }
+
+    private fun loadConfiguration() {
+        try {
+            systemContext?.let { context ->
+                val prefs = context.getSharedPreferences(CONFIG_NAME, Context.MODE_PRIVATE)
+                val url = prefs.getString("server_url", null)
+                val secret = prefs.getString("secret", null)
+                val id = prefs.getString("id", null)
+                val showName = prefs.getString("show_name", null)
+                val enabled = prefs.getBoolean("enabled", false)
+
+                if (url != null && secret != null && id != null && showName != null) {
+                    cachedConfig = Config(url, secret, id, showName, enabled)
+                    XposedBridge.log("$TAG: Configuration loaded successfully")
+                    LogRepository.addLog(LogLevel.INFO, "Config loaded: $showName")
+                } else {
+                    XposedBridge.log("$TAG: Configuration incomplete")
+                    LogRepository.addLog(LogLevel.WARN, "Config incomplete")
+                }
+            }
+        } catch (e: Exception) {
+            XposedBridge.log("$TAG: Failed to load configuration: ${e.message}")
+            LogRepository.addLog(LogLevel.ERROR, "Config load failed: ${e.message}")
+        }
     }
 
     /**
      * Execute custom operations when foreground app switches.
      * This is where you can add your custom logic.
+     * Now integrates with Sleepy API to report device status.
      */
     private fun executeCustomOperations(packageName: String, activityName: String?) {
-        // Example operations:
-        // 1. Log the switch
-        XposedBridge.log("$TAG: [OPERATION] New foreground app: $packageName")
-        
-        // 2. You can add more operations here such as:
-        // - Send broadcast
-        // - Update shared preferences
-        // - Trigger specific actions based on package name
-        // - Record app usage statistics
-        // - Implement app-specific behaviors
+        // Cancel any pending report
+        reportRunnable?.let {
+            handler.removeCallbacks(it)
+        }
+
+        // Schedule a delayed report (debouncing)
+        reportRunnable = Runnable {
+            // Load configuration
+            val config = cachedConfig ?: run {
+                LogRepository.addLog(LogLevel.DEBUG, "No config available, skipping report")
+                reportRunnable = null
+                return@Runnable
+            }
+
+            if (!config.enabled) {
+                LogRepository.addLog(LogLevel.DEBUG, "Reporting disabled in config")
+                reportRunnable = null
+                return@Runnable
+            }
+
+            try {
+                // Get app display name
+                val appName = try {
+                    systemContext?.let { context ->
+                        val pm = context.packageManager
+                        val appInfo = pm.getApplicationInfo(packageName, 0)
+                        pm.getApplicationLabel(appInfo).toString()
+                    } ?: packageName
+                } catch (e: Exception) {
+                    packageName
+                }
+
+                // Get battery info
+                val batteryInfo = try {
+                    systemContext?.let { context ->
+                        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                        val battery = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+                        val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) ?: -1
+                        val isCharging = chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING || 
+                                       chargingStatus == BatteryManager.BATTERY_STATUS_FULL
+                        
+                        val batteryStr = if (battery in 0..100) "$battery%" else "-"
+                        val chargingIcon = if (isCharging) "⚡️" else "🔋"
+                        "[$batteryStr]$chargingIcon"
+                    } ?: ""
+                } catch (e: Exception) {
+                    ""
+                }
+
+                val statusText = "$appName$batteryInfo"
+
+                // Send to Sleepy server
+                SleepyApiClient.sendDeviceStatus(
+                    url = config.url,
+                    secret = config.secret,
+                    id = config.id,
+                    showName = config.showName,
+                    using = true, // Device is being used since app is in foreground
+                    status = statusText,
+                    callback = object : Callback {
+                        override fun onFailure(call: Call, e: IOException) {
+                            XposedBridge.log("$TAG: Failed to send status: ${e.message}")
+                            LogRepository.addLog(LogLevel.ERROR, "Failed to send: ${e.message}")
+                        }
+
+                        override fun onResponse(call: Call, response: Response) {
+                            response.use {
+                                if (response.isSuccessful) {
+                                    XposedBridge.log("$TAG: Status sent successfully: $statusText")
+                                    LogRepository.addLog(LogLevel.INFO, "Sent: $statusText")
+                                } else {
+                                    XposedBridge.log("$TAG: Server error: ${response.code}")
+                                    LogRepository.addLog(LogLevel.WARN, "Server error: ${response.code}")
+                                }
+                            }
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                XposedBridge.log("$TAG: Error in custom operations: ${e.message}")
+                LogRepository.addLog(LogLevel.ERROR, "Operation error: ${e.message}")
+            }
+
+            reportRunnable = null
+        }
+
+        handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
         
         // Example: Log when specific apps come to foreground
         when (packageName) {
             "com.android.chrome" -> {
                 XposedBridge.log("$TAG: [OPERATION] Browser opened")
+                LogRepository.addLog(LogLevel.DEBUG, "Browser opened")
             }
             "com.android.systemui" -> {
                 // Usually system UI, might want to ignore
