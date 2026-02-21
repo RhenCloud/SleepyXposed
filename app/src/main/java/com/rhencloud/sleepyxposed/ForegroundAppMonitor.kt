@@ -14,6 +14,39 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
         private const val TAG = "SleepyXposed"
         private const val SYSTEM_SERVER = "android"
         private var lastForegroundPackage: String? = null
+        private var currentForegroundPackage: String? = null
+        private var currentForegroundActivity: String? = null
+        
+        /**
+         * Get the current foreground application package name.
+         * @return The package name of the current foreground app, or null if not available
+         */
+        @JvmStatic
+        fun getCurrentForegroundPackage(): String? {
+            return currentForegroundPackage
+        }
+        
+        /**
+         * Get the current foreground activity name.
+         * @return The activity name of the current foreground app, or null if not available
+         */
+        @JvmStatic
+        fun getCurrentForegroundActivity(): String? {
+            return currentForegroundActivity
+        }
+        
+        /**
+         * Get the full component name of the current foreground app.
+         * @return The component name in format "packageName/activityName", or just packageName if activity is unknown
+         */
+        @JvmStatic
+        fun getCurrentForegroundComponentName(): String? {
+            return currentForegroundPackage?.let { pkg ->
+                currentForegroundActivity?.let { activity ->
+                    "$pkg/$activity"
+                } ?: pkg
+            }
+        }
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
@@ -65,21 +98,28 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
                             null
                         }
 
-                        if (packageName != null && packageName != lastForegroundPackage) {
-                            // Foreground app has changed!
-                            lastForegroundPackage = packageName
+                        if (packageName != null) {
+                            // Update current foreground app info
+                            currentForegroundPackage = packageName
+                            currentForegroundActivity = activityName
+                            
+                            // Only log and execute operations if the package changed
+                            if (packageName != lastForegroundPackage) {
+                                // Foreground app has changed!
+                                lastForegroundPackage = packageName
 
-                            val componentName = if (activityName != null) {
-                                "$packageName/$activityName"
-                            } else {
-                                packageName
+                                val componentName = if (activityName != null) {
+                                    "$packageName/$activityName"
+                                } else {
+                                    packageName
+                                }
+
+                                // Log the app switch
+                                XposedBridge.log("$TAG: Foreground app switched to: $componentName")
+
+                                // Execute custom operations here
+                                executeCustomOperations(packageName, activityName)
                             }
-
-                            // Log the app switch
-                            XposedBridge.log("$TAG: Foreground app switched to: $componentName")
-
-                            // Execute custom operations here
-                            executeCustomOperations(packageName, activityName)
                         }
                     } catch (e: Throwable) {
                         XposedBridge.log("$TAG: Error in hook: ${e.message}")
@@ -118,6 +158,28 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
             else -> {
                 XposedBridge.log("$TAG: [OPERATION] App switch detected: $packageName")
             }
+        }
+    }
+    
+    /**
+     * Utility method to get application label/display name from package name.
+     * This requires a Context object and PackageManager.
+     * 
+     * Example usage from within a hook that has access to Context:
+     * val displayName = getAppDisplayName(context, "com.android.chrome")
+     * 
+     * @param context Android Context
+     * @param packageName Package name of the app
+     * @return Display name of the app, or package name if not found
+     */
+    fun getAppDisplayName(context: android.content.Context, packageName: String): String {
+        return try {
+            val packageManager = context.packageManager
+            val applicationInfo = packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationLabel(applicationInfo).toString()
+        } catch (e: Exception) {
+            XposedBridge.log("$TAG: Failed to get app display name for $packageName: ${e.message}")
+            packageName
         }
     }
 }

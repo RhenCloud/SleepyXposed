@@ -10,6 +10,7 @@ An Xposed module that monitors foreground app switches and executes custom opera
 - 📝 记录应用切换日志 / Log app switch events
 - ⚙️ 可自定义操作 / Customizable operations
 - 🎯 针对特定应用执行操作 / Execute operations for specific apps
+- 📱 获取当前前台应用名称 / Get current foreground app name
 
 ## 工作原理 / How It Works
 
@@ -85,6 +86,47 @@ private fun executeCustomOperations(packageName: String, activityName: String?) 
             // Operations for specific app
         }
     }
+}
+```
+
+### 获取当前前台应用 / Get Current Foreground App
+
+模块现在提供了公共方法来获取当前前台应用的信息：
+
+The module now provides public methods to get information about the current foreground app:
+
+```kotlin
+// 获取当前前台应用的包名 / Get current foreground package name
+val packageName = ForegroundAppMonitor.getCurrentForegroundPackage()
+
+// 获取当前前台应用的 Activity 名称 / Get current foreground activity name
+val activityName = ForegroundAppMonitor.getCurrentForegroundActivity()
+
+// 获取当前前台应用的完整组件名 / Get current foreground component name
+val componentName = ForegroundAppMonitor.getCurrentForegroundComponentName()
+
+// 获取应用显示名称（需要 Context）/ Get app display name (requires Context)
+val monitor = ForegroundAppMonitor()
+val displayName = monitor.getAppDisplayName(context, packageName ?: "")
+```
+
+这些方法可以在您的自定义操作中或其他 Xposed 模块中调用。
+
+These methods can be called from your custom operations or other Xposed modules.
+
+**使用示例 / Usage Example:**
+
+```kotlin
+private fun executeCustomOperations(packageName: String, activityName: String?) {
+    // 获取并记录当前前台应用信息
+    // Get and log current foreground app info
+    val currentPkg = ForegroundAppMonitor.getCurrentForegroundPackage()
+    val currentComponent = ForegroundAppMonitor.getCurrentForegroundComponentName()
+    
+    XposedBridge.log("SleepyXposed: Current foreground app: $currentComponent")
+    
+    // 您可以在这里使用这些信息做更多操作
+    // You can do more with this information here
 }
 ```
 

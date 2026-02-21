@@ -1,5 +1,6 @@
 package com.rhencloud.sleepyxposed.examples
 
+import com.rhencloud.sleepyxposed.ForegroundAppMonitor
 import de.robv.android.xposed.XposedBridge
 import java.io.File
 import java.text.SimpleDateFormat
@@ -10,9 +11,27 @@ import java.util.*
  * 
  * This file shows how you can extend the functionality of the 
  * executeCustomOperations method with more advanced features.
+ * 
+ * NEW: Examples of how to use the getCurrentForegroundPackage() and related methods
+ * to retrieve the current foreground app name.
  */
 
 object CustomOperationsExamples {
+
+    /**
+     * Example 0: Get current foreground app information
+     * 
+     * You can now retrieve the current foreground app at any time:
+     */
+    fun getCurrentAppInfo() {
+        val packageName = ForegroundAppMonitor.getCurrentForegroundPackage()
+        val activityName = ForegroundAppMonitor.getCurrentForegroundActivity()
+        val componentName = ForegroundAppMonitor.getCurrentForegroundComponentName()
+        
+        XposedBridge.log("SleepyXposed: Current foreground package: $packageName")
+        XposedBridge.log("SleepyXposed: Current foreground activity: $activityName")
+        XposedBridge.log("SleepyXposed: Current foreground component: $componentName")
+    }
 
     /**
      * Example 1: Log app switches with timestamps to a file
@@ -178,6 +197,11 @@ object CustomOperationsExamples {
      * Example usage in ForegroundAppMonitor.executeCustomOperations():
      * 
      * private fun executeCustomOperations(packageName: String, activityName: String?) {
+     *     // NEW: Get current foreground app info at any time
+     *     val currentPkg = ForegroundAppMonitor.getCurrentForegroundPackage()
+     *     val currentActivity = ForegroundAppMonitor.getCurrentForegroundActivity()
+     *     val currentComponent = ForegroundAppMonitor.getCurrentForegroundComponentName()
+     *     
      *     // Use the examples:
      *     
      *     // Filter system apps
@@ -200,5 +224,16 @@ object CustomOperationsExamples {
      *     // Detect rapid switching
      *     CustomOperationsExamples.RapidSwitchDetector.onAppSwitch()
      * }
+     * 
+     * You can also call these methods from outside the module:
+     * 
+     * // From any hook or code that has access to ForegroundAppMonitor:
+     * val foregroundApp = ForegroundAppMonitor.getCurrentForegroundPackage()
+     * XposedBridge.log("Current app: $foregroundApp")
+     * 
+     * // Get app display name (requires Context):
+     * val monitor = ForegroundAppMonitor()
+     * val displayName = monitor.getAppDisplayName(context, foregroundApp ?: "")
+     * XposedBridge.log("Current app name: $displayName")
      */
 }
