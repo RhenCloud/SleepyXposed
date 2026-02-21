@@ -106,7 +106,7 @@ object GetCurrentAppExample {
         
         // Fallback: check for common keywords in package name (less specific)
         return when {
-            packageName.startsWith("com.") && packageName.contains(".game.") -> "Game"
+            packageName.contains(".game.") -> "Game"
             else -> "Other"
         }
     }
