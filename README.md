@@ -86,7 +86,7 @@ adb install app/build/outputs/apk/release/app-release.apk
 1. 打开 Xposed/LSPosed 管理器
 2. 找到 **"SleepyXposed"** 模块
 3. **启用** 该模块
-4. 在作用域中勾选 **"系统框架 (android)"**
+4. 在作用域中勾选 **"系统框架"**
 5. 重启设备
 
 ### 4. 验证工作状态
