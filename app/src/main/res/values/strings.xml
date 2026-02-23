@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SleepyXposed</string>
+    <string name="xposed_description">Monitor foreground app switches and report to Sleepy server</string>
+    <string name="config_description">Configure your Sleepy server connection. This Xposed module
+        will automatically report your device status and current app to the server.</string>
+    <string name="instructions">Instructions:\n1. Fill in your Sleepy server base URL (e.g.,
+        https://sleepy.example.com)\n2. Enter your server secret key\n3. Set a unique
+        device ID\n4. Choose a display name for this device\n5. Enable reporting with the switch\n6.
+        Save and reboot your device\n7. Enable this module in LSPosed/Xposed and select \'System
+        Framework\' as scope\n\nNote: The module only works when enabled in Xposed/LSPosed manager.</string>
+
+    <!-- Configuration UI strings -->
+    <string name="server_configuration">Server Configuration</string>
+    <string name="server_url_label">Server URL</string>
+    <string name="server_url_hint">https://sleepy.example.com</string>
+    <string name="server_secret_label">Server Secret</string>
+    <string name="server_secret_hint">Enter your secret key</string>
+    <string name="device_id_label">Device ID</string>
+    <string name="device_id_hint">e.g., android-phone-1</string>
+    <string name="display_name_label">Display Name</string>
+    <string name="display_name_hint">Name shown on Sleepy page</string>
+    <string name="enable_reporting">Enable Reporting</string>
+    <string name="save_configuration">Save Configuration</string>
+    <string name="config_saved">Configuration saved successfully!\n\nPlease reboot your device for
+        changes to take effect.</string>
+    <string name="fill_all_fields">Please fill in all fields</string>
+    <string name="config_saved_toast">Configuration saved</string>
+</resources>

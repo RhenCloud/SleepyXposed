@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">SleepyXposed</string>
+  <string name="xposed_description">监控前台应用切换并上报到 Sleepy 服务器</string>
+  <string name="config_description">配置您的 Sleepy 服务器连接。此 Xposed 模块将自动向服务器报告您的设备状态和当前应用。</string>
+  <string name="instructions">使用说明：\n1. 填写您的 Sleepy 服务器基础
+    URL（例如：https://sleepy.example.com）\n2. 输入服务器密钥\n3. 设置唯一的设备 ID\n4. 为此设备选择显示名称\n5.
+    使用开关启用上报功能\n6. 保存并重启设备\n7. 在 LSPosed/Xposed 管理器中启用此模块，并选择"系统框架"作为作用域\n\n注意：模块仅在 Xposed/LSPosed
+    管理器中启用后才能工作。</string>
+
+  <!-- Configuration UI strings -->
+  <string name="server_configuration">服务器配置</string>
+  <string name="server_url_label">服务器地址</string>
+  <string name="server_url_hint">https://sleepy.example.com</string>
+  <string name="server_secret_label">服务器密钥</string>
+  <string name="server_secret_hint">输入您的密钥</string>
+  <string name="device_id_label">设备 ID</string>
+  <string name="device_id_hint">例如：android-phone-1</string>
+  <string name="display_name_label">显示名称</string>
+  <string name="display_name_hint">在 Sleepy 页面显示的名称</string>
+  <string name="enable_reporting">启用上报</string>
+  <string name="save_configuration">保存配置</string>
+  <string name="config_saved">配置保存成功！\n\n请重启设备以使更改生效。</string>
+  <string name="fill_all_fields">请填写所有字段</string>
+  <string name="config_saved_toast">配置已保存</string>
+</resources>
