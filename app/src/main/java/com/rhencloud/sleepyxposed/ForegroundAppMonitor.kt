@@ -9,21 +9,16 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import de.robv.android.xposed.IXposedHookLoadPackage
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
-import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.io.IOException
+import java.lang.reflect.Method
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Response
 
-class ForegroundAppMonitor : IXposedHookLoadPackage {
+class ForegroundAppMonitor(private val log: (String) -> Unit) {
 
     companion object {
         private const val TAG = "SleepyXposed"
-        private const val SYSTEM_SERVER = "android"
         private const val REPORT_DELAY_MS = 1000L
         private const val MATCH_ANY_USER_FLAG = 0x00002000
         private const val LOCK_REPORT_COOLDOWN_MS = 1_000L
@@ -37,29 +32,12 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
 
         var cachedConfig: Config? = null
 
-        /**
-         * Get the current foreground application package name.
-         * @return The package name of the current foreground app, or null if not available
-         */
         @JvmStatic
-        fun getCurrentForegroundPackage(): String? {
-            return currentForegroundPackage
-        }
+        fun getCurrentForegroundPackage(): String? = currentForegroundPackage
 
-        /**
-         * Get the current foreground activity name.
-         * @return The activity name of the current foreground app, or null if not available
-         */
         @JvmStatic
-        fun getCurrentForegroundActivity(): String? {
-            return currentForegroundActivity
-        }
+        fun getCurrentForegroundActivity(): String? = currentForegroundActivity
 
-        /**
-         * Get the full component name of the current foreground app.
-         * @return The component name in format "packageName/activityName", or just packageName if
-         * activity is unknown
-         */
         @JvmStatic
         fun getCurrentForegroundComponentName(): String? {
             return currentForegroundPackage?.let { pkg ->
@@ -67,284 +45,176 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
             }
         }
 
-        /**
-         * Utility method to get application label/display name from package name. This requires a
-         * Context object and PackageManager.
-         *
-         * @param context Android Context
-         * @param packageName Package name of the app
-         * @return Display name of the app, or package name if not found
-         */
         @JvmStatic
-        fun getAppDisplayName(context: android.content.Context, packageName: String): String {
+        fun getAppDisplayName(context: Context, packageName: String): String {
             return try {
                 val packageManager = context.packageManager
                 val applicationInfo =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            val flags =
-                                    PackageManager.ApplicationInfoFlags.of(
-                                            MATCH_ANY_USER_FLAG.toLong()
-                                    )
-                            packageManager.getApplicationInfo(packageName, flags)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            packageManager.getApplicationInfo(packageName, 0)
-                        }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val flags =
+                            PackageManager.ApplicationInfoFlags.of(MATCH_ANY_USER_FLAG.toLong())
+                        packageManager.getApplicationInfo(packageName, flags)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        packageManager.getApplicationInfo(packageName, 0)
+                    }
                 packageManager.getApplicationLabel(applicationInfo).toString()
-            } catch (e: Exception) {
-                XposedBridge.log(
-                        "$TAG: Failed to get app display name for $packageName: ${e.message}"
-                )
+            } catch (_: Exception) {
                 packageName
             }
         }
     }
 
     data class Config(
-            val url: String,
-            val secret: String,
-            val id: String,
-            val showName: String,
-            val enabled: Boolean = true
+        val url: String,
+        val secret: String,
+        val id: String,
+        val showName: String,
+        val enabled: Boolean = true
     )
 
     private var handler: Handler? = null
     private var reportRunnable: Runnable? = null
     private var systemContext: Context? = null
 
-    override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        // Log every package load attempt for debugging
-        XposedBridge.log("$TAG: handleLoadPackage called for: ${lpparam.packageName}")
-
-        // We only hook into the system server process
-        if (lpparam.packageName != SYSTEM_SERVER) {
-            return
-        }
-
-        XposedBridge.log("$TAG: Detected system server, starting hook initialization...")
-
+    fun initializeForSystemServer(classLoader: ClassLoader) {
+        log("$TAG: Detected system server, starting hook initialization...")
         try {
-            // Get system context for accessing battery manager and shared preferences
-            hookActivityTaskManagerService(lpparam)
+            hookActivityTaskManagerService(classLoader)
         } catch (e: Throwable) {
-            XposedBridge.log("$TAG: Failed to hook: ${e.message}")
-            e.printStackTrace()
+            log("$TAG: Failed to hook: ${e.message}")
         }
     }
 
-    private fun hookActivityTaskManagerService(lpparam: XC_LoadPackage.LoadPackageParam) {
-        XposedBridge.log("$TAG: Starting hookActivityTaskManagerService...")
+    private fun hookActivityTaskManagerService(classLoader: ClassLoader) {
+        log("$TAG: Starting hookActivityTaskManagerService...")
 
-        // Hook the method that handles activity resume in the system
-        // This is called when an activity comes to the foreground
-        val activityRecordClass =
-                XposedHelpers.findClass("com.android.server.wm.ActivityRecord", lpparam.classLoader)
+        val activityRecordClass = Class.forName("com.android.server.wm.ActivityRecord", false, classLoader)
+        log("$TAG: Found ActivityRecord class")
 
-        XposedBridge.log("$TAG: Found ActivityRecord class")
-
-        // Get system context
         try {
-            val activityThreadClass =
-                    XposedHelpers.findClass("android.app.ActivityThread", lpparam.classLoader)
-            val currentActivityThread =
-                    XposedHelpers.callStaticMethod(activityThreadClass, "currentActivityThread")
-            systemContext =
-                    XposedHelpers.callMethod(currentActivityThread, "getSystemContext") as? Context
+            val activityThreadClass = Class.forName("android.app.ActivityThread", false, classLoader)
+            val currentActivityThread = activityThreadClass.getMethod("currentActivityThread").invoke(null)
+            val getSystemContext = activityThreadClass.getMethod("getSystemContext")
+            systemContext = getSystemContext.invoke(currentActivityThread) as? Context
 
-            XposedBridge.log("$TAG: System context obtained: $systemContext")
-
+            log("$TAG: System context obtained: $systemContext")
             if (systemContext != null) {
-                XposedBridge.log("$TAG: System context obtained successfully")
-                val looper =
-                        systemContext?.mainLooper ?: Looper.myLooper() ?: Looper.getMainLooper()
-                if (looper != null) {
-                    handler = Handler(looper)
-                } else {
-                    XposedBridge.log("$TAG: No Looper available for handler, reporting disabled")
-                }
-                // Load configuration from shared preferences
+                val looper = systemContext?.mainLooper ?: Looper.myLooper() ?: Looper.getMainLooper()
+                handler = Handler(looper)
                 loadConfiguration()
                 registerLockScreenReceiver()
-            } else {
-                XposedBridge.log("$TAG: Failed to obtain system context")
             }
         } catch (e: Exception) {
-            XposedBridge.log("$TAG: Failed to get system context: ${e.message}")
-            e.printStackTrace()
+            log("$TAG: Failed to get system context: ${e.message}")
         }
 
-        // Hook the completeResumeLocked method which is called when an activity is resumed
-        XposedHelpers.findAndHookMethod(
-                activityRecordClass,
-                "completeResumeLocked",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        try {
-                            // Get the ActivityRecord instance
-                            val activityRecord = param.thisObject
+        val completeResume: Method = activityRecordClass.getDeclaredMethod("completeResumeLocked")
+        completeResume.isAccessible = true
+        ModuleMain.instance?.hook(completeResume)?.intercept { chain ->
+            val result = chain.proceed()
+            try {
+                val activityRecord = chain.thisObject
+                val packageName = getField(activityRecord, "packageName") as? String
+                val activityInfo = getField(activityRecord, "info")
+                val activityName = activityInfo?.let { getField(it, "name") as? String }
 
-                            // Get package name
-                            val packageName =
-                                    XposedHelpers.getObjectField(activityRecord, "packageName") as?
-                                            String
+                if (packageName != null) {
+                    currentForegroundPackage = packageName
+                    currentForegroundActivity = activityName
 
-                            // Get activity info to extract the full component name
-                            val activityInfo = XposedHelpers.getObjectField(activityRecord, "info")
-
-                            val activityName =
-                                    if (activityInfo != null) {
-                                        XposedHelpers.getObjectField(activityInfo, "name") as?
-                                                String
-                                    } else {
-                                        null
-                                    }
-
-                            if (packageName != null) {
-                                // Update current foreground app info
-                                currentForegroundPackage = packageName
-                                currentForegroundActivity = activityName
-
-                                // Only log and execute operations if the package changed
-                                if (packageName != lastForegroundPackage) {
-                                    // Foreground app has changed!
-                                    lastForegroundPackage = packageName
-
-                                    var appName =
-                                            getAppDisplayName(systemContext!!, packageName) as?
-                                                    String
-
-                                    val componentName =
-                                            if (activityName != null) {
-                                                "$packageName/$activityName/$appName"
-                                            } else {
-                                                packageName
-                                            }
-
-                                    // Log the app switch
-                                    XposedBridge.log(
-                                            "$TAG: Foreground app switched to: $componentName"
-                                    )
-
-                                    // Execute custom operations here
-                                    executeCustomOperations(packageName)
-                                }
-                            }
-                        } catch (e: Throwable) {
-                            XposedBridge.log("$TAG: Error in hook: ${e.message}")
-                        }
+                    if (packageName != lastForegroundPackage) {
+                        lastForegroundPackage = packageName
+                        val appName = systemContext?.let { getAppDisplayName(it, packageName) } ?: packageName
+                        val componentName =
+                            if (activityName != null) "$packageName/$activityName/$appName" else packageName
+                        log("$TAG: Foreground app switched to: $componentName")
+                        executeCustomOperations(packageName)
                     }
                 }
-        )
+            } catch (e: Throwable) {
+                log("$TAG: Error in hook: ${e.message}")
+            }
+            result
+        }
 
-        XposedBridge.log("$TAG: Successfully hooked into ActivityRecord.completeResumeLocked")
+        log("$TAG: Successfully hooked into ActivityRecord.completeResumeLocked")
+    }
+
+    private fun getField(target: Any, name: String): Any? {
+        val field = target.javaClass.getDeclaredField(name)
+        field.isAccessible = true
+        return field.get(target)
     }
 
     private fun loadConfiguration() {
-        XposedBridge.log("$TAG: loadConfiguration called")
         try {
             val sleepyConfig = ConfigManager.loadConfigFromXSharedPreferences()
-
-            // Convert SleepyConfig to internal Config format
             cachedConfig =
-                    Config(
-                            url = sleepyConfig.serverUrl,
-                            secret = sleepyConfig.secret,
-                            id = sleepyConfig.deviceId,
-                            showName = sleepyConfig.showName,
-                            enabled = sleepyConfig.enabled
-                    )
-
-            XposedBridge.log(
-                    "$TAG: Configuration loaded from XSharedPreferences: ${sleepyConfig.showName}"
-            )
-            XposedBridge.log(
-                    "$TAG: Config validity: url=${sleepyConfig.serverUrl.isNotBlank()}, secret=${sleepyConfig.secret.isNotBlank()}, id=${sleepyConfig.deviceId.isNotBlank()}, showName=${sleepyConfig.showName.isNotBlank()}, enabled=${sleepyConfig.enabled}"
-            )
+                Config(
+                    url = sleepyConfig.serverUrl,
+                    secret = sleepyConfig.secret,
+                    id = sleepyConfig.deviceId,
+                    showName = sleepyConfig.showName,
+                    enabled = sleepyConfig.enabled
+                )
         } catch (e: Exception) {
-            XposedBridge.log("$TAG: Failed to load configuration: ${e.message}")
+            log("$TAG: Failed to load configuration: ${e.message}")
         }
     }
 
-    /**
-     * Execute custom operations when foreground app switches. This is where you can add your custom
-     * logic. Now integrates with Sleepy API to report device status.
-     */
     private fun executeCustomOperations(packageName: String) {
-        val handlerInstance = handler
-        if (handlerInstance == null) {
-            XposedBridge.log("$TAG: Handler not initialized, skipping report")
+        val handlerInstance = handler ?: run {
+            log("$TAG: Handler not initialized, skipping report")
             return
         }
 
-        // Cancel any pending report
         reportRunnable?.let { handlerInstance.removeCallbacks(it) }
 
-        // Schedule a delayed report (debouncing)
         reportRunnable = Runnable {
-            // Load configuration
             var config = cachedConfig
             if (config == null || !isConfigUsable(config)) {
-                XposedBridge.log(
-                        "$TAG: Config cache missing or incomplete, reloading configuration"
-                )
                 loadConfiguration()
                 config = cachedConfig
             }
             if (config == null || !isConfigUsable(config)) {
-                XposedBridge.log("$TAG: Config is null after reload, skipping report")
                 reportRunnable = null
                 return@Runnable
             }
-
             if (!config.enabled) {
-                XposedBridge.log("$TAG: Config disabled, skipping report")
                 reportRunnable = null
                 return@Runnable
             }
 
             try {
-                // Get app display name
-                val appName =
-                        systemContext?.let { context -> getAppDisplayName(context, packageName) }
-                                ?: packageName
-
+                val appName = systemContext?.let { getAppDisplayName(it, packageName) } ?: packageName
                 val batteryInfo = buildBatteryInfo()
-
                 val statusText = "$appName$batteryInfo"
 
-                // Send to Sleepy server
                 SleepyApiClient.sendDeviceStatus(
-                        baseUrl = config.url,
-                        secret = config.secret,
-                        id = config.id,
-                        showName = config.showName,
-                        using = true, // Device is being used since app is in foreground
-                        status = statusText,
-                        callback =
-                                object : Callback {
-                                    override fun onFailure(call: Call, e: IOException) {
-                                        XposedBridge.log(
-                                                "$TAG: Failed to send status: ${e.message}"
-                                        )
-                                    }
+                    baseUrl = config.url,
+                    secret = config.secret,
+                    id = config.id,
+                    showName = config.showName,
+                    using = true,
+                    status = statusText,
+                    callback =
+                        object : Callback {
+                            override fun onFailure(call: Call, e: IOException) {
+                                log("$TAG: Failed to send status: ${e.message}")
+                            }
 
-                                    override fun onResponse(call: Call, response: Response) {
-                                        response.use {
-                                            if (response.isSuccessful) {
-                                                XposedBridge.log(
-                                                        "$TAG: Status sent successfully: $statusText"
-                                                )
-                                            } else {
-                                                XposedBridge.log(
-                                                        "$TAG: Server error: ${response.code}"
-                                                )
-                                            }
-                                        }
+                            override fun onResponse(call: Call, response: Response) {
+                                response.use {
+                                    if (!response.isSuccessful) {
+                                        log("$TAG: Server error: ${response.code}")
                                     }
                                 }
+                            }
+                        }
                 )
             } catch (e: Exception) {
-                XposedBridge.log("$TAG: Error in custom operations: ${e.message}")
+                log("$TAG: Error in custom operations: ${e.message}")
             }
 
             reportRunnable = null
@@ -355,10 +225,10 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
 
     private fun isConfigUsable(config: Config?): Boolean {
         return config != null &&
-                config.url.isNotBlank() &&
-                config.secret.isNotBlank() &&
-                config.id.isNotBlank() &&
-                config.showName.isNotBlank()
+            config.url.isNotBlank() &&
+            config.secret.isNotBlank() &&
+            config.id.isNotBlank() &&
+            config.showName.isNotBlank()
     }
 
     private fun buildBatteryInfo(): String {
@@ -366,19 +236,16 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
             systemContext?.let { context ->
                 val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
                 val battery = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-                val chargingStatus =
-                        bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) ?: -1
+                val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) ?: -1
                 val isCharging =
-                        chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
-                                chargingStatus == BatteryManager.BATTERY_STATUS_FULL
+                    chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
+                        chargingStatus == BatteryManager.BATTERY_STATUS_FULL
 
                 val batteryStr = if (battery in 0..100) "$battery%" else "-"
                 val chargingIcon = if (isCharging) "⚡️" else "🔋"
                 "[$batteryStr]$chargingIcon"
-            }
-                    ?: ""
-        } catch (e: Exception) {
-            XposedBridge.log("$TAG: Failed to get battery info: ${e.message}")
+            } ?: ""
+        } catch (_: Exception) {
             ""
         }
     }
@@ -388,28 +255,27 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
 
         val ctx = systemContext ?: return
         try {
-            val filter =
-                    IntentFilter().apply {
-                        addAction(Intent.ACTION_SCREEN_OFF)
-                        addAction(Intent.ACTION_SCREEN_ON)
-                        addAction(Intent.ACTION_USER_PRESENT)
-                    }
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }
 
             val receiver =
-                    object : BroadcastReceiver() {
-                        override fun onReceive(context: Context?, intent: Intent?) {
-                            val action = intent?.action
-                            XposedBridge.log("$TAG: $ACTION_LOG_PREFIX$action")
+                object : BroadcastReceiver() {
+                    override fun onReceive(context: Context?, intent: Intent?) {
+                        val action = intent?.action
+                        log("$TAG: $ACTION_LOG_PREFIX$action")
 
-                            if (Intent.ACTION_SCREEN_OFF == action) {
-                                val now = System.currentTimeMillis()
-                                if (now - lastLockReportAt < LOCK_REPORT_COOLDOWN_MS) return
-                                lastLockReportAt = now
+                        if (Intent.ACTION_SCREEN_OFF == action) {
+                            val now = System.currentTimeMillis()
+                            if (now - lastLockReportAt < LOCK_REPORT_COOLDOWN_MS) return
+                            lastLockReportAt = now
 
-                                handler?.post { sendLockScreenStatus() } ?: sendLockScreenStatus()
-                            }
+                            handler?.post { sendLockScreenStatus() } ?: sendLockScreenStatus()
                         }
                     }
+                }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 ctx.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
@@ -418,9 +284,9 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
             }
 
             lockReceiverRegistered = true
-            XposedBridge.log("$TAG: Lock screen receiver registered")
+            log("$TAG: Lock screen receiver registered")
         } catch (e: Exception) {
-            XposedBridge.log("$TAG: Failed to register lock receiver: ${e.message}")
+            log("$TAG: Failed to register lock receiver: ${e.message}")
         }
     }
 
@@ -432,45 +298,38 @@ class ForegroundAppMonitor : IXposedHookLoadPackage {
         }
 
         if (config == null || !isConfigUsable(config)) {
-            XposedBridge.log("$TAG: Lock report skipped, config unavailable")
+            log("$TAG: Lock report skipped, config unavailable")
+            return
+        }
+        if (!config.enabled) {
+            log("$TAG: Lock report skipped, config disabled")
             return
         }
 
         val batteryInfo = buildBatteryInfo()
         val statusText = "Screen locked$batteryInfo"
-        XposedBridge.log("$TAG: Sending lock screen status: $statusText")
 
         try {
             SleepyApiClient.sendDeviceStatus(
-                    baseUrl = config.url,
-                    secret = config.secret,
-                    id = config.id,
-                    showName = config.showName,
-                    using = false,
-                    status = statusText,
-                    callback =
-                            object : Callback {
-                                override fun onFailure(call: Call, e: IOException) {
-                                    XposedBridge.log(
-                                            "$TAG: Failed to send lock status: ${e.message}"
-                                    )
-                                }
+                baseUrl = config.url,
+                secret = config.secret,
+                id = config.id,
+                showName = config.showName,
+                using = false,
+                status = statusText,
+                callback =
+                    object : Callback {
+                        override fun onFailure(call: Call, e: IOException) {
+                            log("$TAG: Failed to send lock status: ${e.message}")
+                        }
 
-                                override fun onResponse(call: Call, response: Response) {
-                                    response.use {
-                                        if (response.isSuccessful) {
-                                            XposedBridge.log("$TAG: Lock status sent successfully")
-                                        } else {
-                                            XposedBridge.log(
-                                                    "$TAG: Lock status server error: ${response.code}"
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                        override fun onResponse(call: Call, response: Response) {
+                            response.close()
+                        }
+                    }
             )
         } catch (e: Exception) {
-            XposedBridge.log("$TAG: Error sending lock status: ${e.message}")
+            log("$TAG: Error sending lock status: ${e.message}")
         }
     }
 }

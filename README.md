@@ -195,3 +195,4 @@ Sleepy 是一个个人在线状态和应用展示项目：
 
 - [LSPosed](https://github.com/LSPosed/LSPosed)
 - [Sleepy](https://github.com/sleepy-project/sleepy)
+- 图标来源：[SiiWay Icons - Sleepy](https://icons.siiway.org/sleepy)（由 [@NtKrnl32](https://github.com/NtKrnl32) 和 [@XiaoYuan151](https://github.com/XiaoYuan151) 制作）

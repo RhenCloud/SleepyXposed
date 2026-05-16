@@ -18,7 +18,7 @@ android {
 
     defaultConfig {
         applicationId = "com.rhencloud.sleepyxposed"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -56,6 +56,12 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    packaging {
+        resources {
+            merges += "META-INF/xposed/*"
+        }
+    }
 }
 
 dependencies {
@@ -66,7 +72,7 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    compileOnly("de.robv.android.xposed:api:82")
+    compileOnly("io.github.libxposed:api:101.0.1")
 
     testImplementation("junit:junit:4.13.2")
 }
