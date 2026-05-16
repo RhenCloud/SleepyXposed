@@ -25,11 +25,40 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android SDK components
+        run: |
+          sdkmanager --install "cmdline-tools;latest" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          yes | sdkmanager --licenses
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+
+      - name: Restore signing key
+        id: restore-signing-key
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "Signing secrets are not configured; release will be built unsigned."
+            echo "artifact_path=app/build/outputs/apk/release/app-release-unsigned.apk" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.jks
+          cat > keystore.properties <<EOF
+          storeFile=release.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          echo "artifact_path=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
@@ -44,7 +73,8 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload Release APK
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          path: ${{ steps.restore-signing-key.outputs.artifact_path }}

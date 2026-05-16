@@ -66,11 +66,11 @@ adb install app/build/outputs/apk/release/app-release.apk
 
 #### 必填项
 
-| 字段           | 说明                   | 示例                                     |
-| -------------- | ---------------------- | ---------------------------------------- |
-| **服务器地址** | Sleepy 服务器地址      | `https://your-sleepy.com`                |
-| **服务器密钥** | Sleepy 认证密钥        | `your-secret-key-here`                   |
-| **设备 ID**    | 唯一标识此设备         | `android-phone-1`                        |
+| 字段           | 说明              | 示例                      |
+| -------------- | ----------------- | ------------------------- |
+| **服务器地址** | Sleepy 服务器地址 | `https://your-sleepy.com` |
+| **服务器密钥** | Sleepy 认证密钥   | `your-secret-key-here`    |
+| **设备 ID**    | 唯一标识此设备    | `android-phone-1`         |
 
 #### 可选项
 
@@ -94,6 +94,30 @@ adb install app/build/outputs/apk/release/app-release.apk
 - 打开 SleepyXposed 应用
 - 检查日志栏，查看是否有活动日志
 - 访问 Sleepy 服务器页面，验证设备是否在线并显示当前应用
+
+## 🔐 发布签名
+
+`release` 构建会读取项目根目录下的 `keystore.properties`。你可以先复制 `keystore.properties.example`，然后把真实信息填进去：
+
+```properties
+storeFile=release.jks
+storePassword=你的密钥库密码
+keyAlias=你的别名
+keyPassword=你的密钥密码
+```
+
+把对应的 `release.jks` 放在项目根目录，或者把 `storeFile` 改成你的实际路径。配置完成后运行 `./gradlew assembleRelease`，生成的 APK 就会使用该签名。
+
+如果要让 GitHub Actions 产出签名版 release APK，需要在仓库 Secrets 中配置以下内容：
+
+```text
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+```
+
+其中 `ANDROID_KEYSTORE_BASE64` 是 keystore 文件经过 base64 编码后的内容。workflow 会在非 PR 构建时自动恢复密钥并生成签名版 release 包。
 
 ## 📖 使用指南
 
